@@ -1,41 +1,80 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-
-const { getStoredItems, storeItems } = require('./data/items');
+require("dotenv").config();
+const express = require("express");
+const bodyParser = require("body-parser");
+const cors = require("cors");
+const port = process.env.PORT || 5000;
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const app = express();
 
 app.use(bodyParser.json());
+app.use(express.json());
 
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  next();
+app.use(
+  cors({
+    origin: ["http://localhost:3000"],
+  })
+);
+
+app.get("/", (req, res) => {
+  res.send("Hello World!");
 });
 
-app.get('/items', async (req, res) => {
-  const storedItems = await getStoredItems();
-   //await new Promise((resolve, reject) => setTimeout(() => resolve(), 4000));
-  res.json({ items: storedItems });
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.f6iyz.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+const client = new MongoClient(uri, {
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  },
 });
 
-app.get('/items/:id', async (req, res) => {
-  const storedItems = await getStoredItems();
-  const item = storedItems.find((item) => item.id === req.params.id);
-  res.json({ item });
-});
+async function run() {
+  try {
+    await client.connect();
+    const database = client.db("myntra");
+    const itemsCollection = database.collection("items");
 
-app.post('/items', async (req, res) => {
-  const existingItems = await getStoredItems();
-  const itemData = req.body;
-  const newItem = {
-    ...itemData,
-    id: Math.random().toString(),
-  };
-  const updatedItems = [newItem, ...existingItems];
-  await storeItems(updatedItems);
-  res.status(201).json({ message: 'Stored new item.', item: newItem });
-});
+    app.get("/items", async (req, res) => {
+      try {
+        const storedItems = await itemsCollection.find({}).toArray();
+        res.json({ items: storedItems });
+      } catch (error) {
+        res.status(500).json({ error: "Failed to fetch items" });
+      }
+    });
 
-app.listen(8080);
+    app.get("/items/:id", async (req, res) => {
+      try {
+        const storedItems = await itemsCollection.find({}).toArray();
+        const item = storedItems.find((item) => item.id === req.params.id);
+        res.json({ item });
+      } catch (error) {
+        res.status(500).json({ error: "Failed to fetch item" });
+      }
+    });
+
+    app.post("/items", async (req, res) => {
+      try {
+        const itemData = req.body;
+        const result = await itemsCollection.insertOne(itemData);
+        res.json({ result });
+      } catch (error) {
+        res.status(500).json({ error: "Failed to add item" });
+      }
+    });
+
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
+  } catch (error) {
+    // Ensures that the client will close when you finish/error
+    //await client.close();
+  }
+}
+run().catch(console.dir);
+
+app.listen(port, () => {
+  console.log(`Server is running on http://localhost:${port}`);
+});
